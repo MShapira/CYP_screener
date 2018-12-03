@@ -1,0 +1,14 @@
+{
+  "filename": "aromatase.txt",
+  "first_measurement": "M1",
+  "second_measurement": "M2",
+  "range": "A1-H12",
+  "blank": "A1",
+  "substrate": "A2",
+  "inhibitor": "A3",
+  "compounds": [
+    "LjG-25/8M",
+    "LjG-13/30",
+    "4gl7"
+  ]
+}
