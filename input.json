@@ -1,14 +1,52 @@
 {
-  "filename": "aromatase.txt",
-  "first_measurement": "M1",
-  "second_measurement": "M2",
-  "range": "A1-H12",
-  "blank": "A1",
-  "substrate": "A2",
-  "inhibitor": "A3",
-  "compounds": [
-    "LjG-25/8M",
-    "LjG-13/30",
-    "4gl7"
-  ]
+  "CYP7A1": {
+  	"first_measurement": "7A_7B_M1",
+  	"second_measurement": "7A_7B_M2",
+  	"range": "F4-G6",
+  	"blank": "F1",
+  	"substrate": "F2",
+  	"inhibitor": "F3",
+  	"compounds": [
+    		"LjG 13-35",
+    		"LjG 14-23",
+    		"LjG 6-17",
+    		"LjG 9-19",
+    		"LjG 25-5J",
+    		"LjG 19-32",
+    		"LjG 16-8M",
+    		"LjG 31-2J-II",
+    		"LjG 20-5M",
+    		"LjG 40-58",
+    		"LjG 24-9M",
+    		"LjG 31-46-II",
+    		"LjG 27-38-I",
+    		"LjG 42-66",
+    		"LjG 26-44"
+  	]
+  },
+  "CYP7B1": {
+  	"first_measurement": "7A_7B_M1",
+  	"second_measurement": "7A_7B_M2",
+  	"range": "G10-H12",
+  	"blank": "G7",
+  	"substrate": "G8",
+  	"inhibitor": "G9",
+  	"compounds": [
+    		"LjG 13-35",
+    		"LjG 14-23",
+    		"LjG 6-17",
+    		"LjG 9-19",
+    		"LjG 25-5J",
+    		"LjG 19-32",
+    		"LjG 16-8M",
+    		"LjG 31-2J-II",
+    		"LjG 20-5M",
+    		"LjG 40-58",
+    		"LjG 24-9M",
+    		"LjG 31-46-II",
+    		"LjG 27-38-I",
+    		"LjG 42-66",
+    		"LjG 26-44"
+  	]
+  }  
 }
