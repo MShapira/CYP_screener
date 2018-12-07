@@ -97,18 +97,18 @@ def get_cells(cellRange): #obtain cells sequence list [A3, A4, A5 .... H10, H11]
     else:
         for letter in range(ord(cellRange[0][0]), ord(cellRange[1][0]) + 1):
             if letter == ord(cellRange[0][0]):
-                for num in range(int(cellRange[0][1:]), 13):
+                for num in range(int(cellRange[0][1:]), int(cellRange[1][1:])+1):
                     cells.append(cellRange[0][0]+str(num))
             elif letter == ord(cellRange[1][0]):
-                for num in range(1, int(cellRange[1][1:])+1):
+                for num in range(int(cellRange[0][1:]), int(cellRange[1][1:])+1):
                     cells.append(cellRange[1][0]+str(num))
             else:
-                for num in range(1, 13):
+                for num in range(int(cellRange[0][1:]), int(cellRange[1][1:])+1):
                     cells.append(chr(letter)+str(num))
     return cells
 
 parmFile = 'input.json' #sys.argv[2] #json parameters file
-inputFile = 'CYP_7A_7B_19_21_LjG.txt' #sys.argv[1] #input file from Spectramax
+inputFile = '20181207_PGIS_HTS_azoles_raw_columns.txt' #sys.argv[1] #input file from Spectramax
 
 files = read_input(filename = inputFile) #in one file it can be not only 2 plates, but 4, 6, 8 etc.
 with open(parmFile) as f:
@@ -128,15 +128,40 @@ for protein in inputData.keys():
         compounds = {inputData[protein]['compounds'][i]:cells[i] for i in range(len(cells))}
     else:
         compounds = {cells[i]:cells[i] for i in range(len(cells))}
-    if substrate:
+    if inputData[protein]['substrate']:
         compounds['substrate'] = substrate
-    if inhibitor:
+    if inputData[protein]['inhibitor']:
         compounds['inhibitor'] = inhibitor
+    if blank:
+        compounds['blank'] = blank
 
     first_plate = scv_parser('{0}.csv'.format(file1))
     second_plate = scv_parser('{0}.csv'.format(file2))
     
-    comp = "LjG 40-58" #current compound
-    final_data = calculate_final_data(first_plate, second_plate, protein_well = blank, sample_well=compounds.get(comp))
-
-    generate_graph(final_data, comp, protein)
+    compNames = list(compounds.keys())#"LjG 40-58" #current compound
+    #final_data = calculate_final_data(first_plate, second_plate, protein_well = blank, sample_well=compounds.get(comp))
+    xgr = len(range(int(cellRan[0][1:]), int(cellRan[1][1:]) + 1))
+    ygr = len(range(ord(cellRan[0][0]), ord(cellRan[1][0]) + 1))
+    f, axarr = plt.subplots(ygr, xgr, figsize = (15,15))
+    a = 0
+    for i in range(0, ygr):
+        for j in range(0, xgr):
+            final_data = calculate_final_data(first_plate, second_plate, protein_well = blank, sample_well=compounds.get(compNames[a]))
+            x = np.fromiter(final_data.keys(), dtype = float)
+            y = np.fromiter(final_data.values(), dtype = float)
+            # smooth the curve
+            y_smoothed = savgol_filter(y, 15, 3)  # window size 15, polynomial order 3
+            bsl = baseline_als(y_smoothed)
+#            fig = plt.figure()
+            #    plt.plot(x, y, color='blue')
+            #    plt.plot(x, y_smoothed, color='red')
+            axarr[i, j].plot(x, y, color = 'blue')
+            axarr[i, j].plot(x, y_smoothed, color='red')
+            axarr[i, j].plot(x, y_smoothed - bsl, color='black')
+            axarr[i, j].set_xlabel('Wavelength, nm')
+            axarr[i, j].set_ylabel('Optical Density, A')
+            axarr[i, j].set_title('{0}_{1}'.format(compNames[a], compounds.get(compNames[a])))
+            a += 1
+    plt.tight_layout()
+    f.savefig('{0}.ps'.format(protein), papertype='A0')
+    #generate_graph(final_data, comp, protein)
