@@ -1,9 +1,7 @@
 from pandas import *
 import numpy as np
-from pprint import pprint
 import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
-from sklearn import linear_model
 import json
 import scipy
 import sys
@@ -107,8 +105,8 @@ def get_cells(cellRange): #obtain cells sequence list [A3, A4, A5 .... H10, H11]
                     cells.append(chr(letter)+str(num))
     return cells
 
-parmFile = 'input.json' #sys.argv[2] #json parameters file
-inputFile = '20181207_PGIS_HTS_azoles_raw_columns.txt' #sys.argv[1] #input file from Spectramax
+parmFile = sys.argv[2] #json parameters file
+inputFile = sys.argv[1] #input file from Spectramax
 
 files = read_input(filename = inputFile) #in one file it can be not only 2 plates, but 4, 6, 8 etc.
 with open(parmFile) as f:
@@ -125,43 +123,40 @@ for protein in inputData.keys():
         inhibitor = inputData[protein]['inhibitor'] #inhibitor cell (if any)
      # if input file has compound names, graphs will be with compounds names, in other case with cells names 
     if inputData[protein]['compounds']:
-        compounds = {inputData[protein]['compounds'][i]:cells[i] for i in range(len(cells))}
+        compounds = {cells[i]:inputData[protein]['compounds'][i] for i in range(len(cells))}
     else:
         compounds = {cells[i]:cells[i] for i in range(len(cells))}
     if inputData[protein]['substrate']:
-        compounds['substrate'] = substrate
+        compounds[substrate] = 'substrate'
     if inputData[protein]['inhibitor']:
-        compounds['inhibitor'] = inhibitor
+        compounds[inhibitor] = 'inhibitor'
     if blank:
-        compounds['blank'] = blank
+        compounds[blank] = 'blank'
 
     first_plate = scv_parser('{0}.csv'.format(file1))
     second_plate = scv_parser('{0}.csv'.format(file2))
-    
-    compNames = list(compounds.keys())#"LjG 40-58" #current compound
+    print(compounds)
+#    compNames = list(compounds.keys())#"LjG 40-58" #current compound
     #final_data = calculate_final_data(first_plate, second_plate, protein_well = blank, sample_well=compounds.get(comp))
     xgr = len(range(int(cellRan[0][1:]), int(cellRan[1][1:]) + 1))
     ygr = len(range(ord(cellRan[0][0]), ord(cellRan[1][0]) + 1))
-    f, axarr = plt.subplots(ygr, xgr, figsize = (15,15))
+    f, axarr = plt.subplots(ygr, xgr, figsize = (4*xgr,4*ygr))
     a = 0
     for i in range(0, ygr):
         for j in range(0, xgr):
-            final_data = calculate_final_data(first_plate, second_plate, protein_well = blank, sample_well=compounds.get(compNames[a]))
+            final_data = calculate_final_data(first_plate, second_plate, protein_well = blank, sample_well=cells[a])
             x = np.fromiter(final_data.keys(), dtype = float)
             y = np.fromiter(final_data.values(), dtype = float)
             # smooth the curve
             y_smoothed = savgol_filter(y, 15, 3)  # window size 15, polynomial order 3
             bsl = baseline_als(y_smoothed)
-#            fig = plt.figure()
-            #    plt.plot(x, y, color='blue')
-            #    plt.plot(x, y_smoothed, color='red')
             axarr[i, j].plot(x, y, color = 'blue')
             axarr[i, j].plot(x, y_smoothed, color='red')
             axarr[i, j].plot(x, y_smoothed - bsl, color='black')
-            axarr[i, j].set_xlabel('Wavelength, nm')
-            axarr[i, j].set_ylabel('Optical Density, A')
-            axarr[i, j].set_title('{0}_{1}'.format(compNames[a], compounds.get(compNames[a])))
+            axarr[i, j].set_xlabel(r'$\lambda$, nm')
+            axarr[i, j].set_ylabel('Absorbance')
+            axarr[i, j].set_title('{0}_{1}'.format(cells[a], compounds.get(cells[a])))
             a += 1
     plt.tight_layout()
-    f.savefig('{0}.ps'.format(protein), papertype='A0')
+    f.savefig('{0}_{1}.svg'.format(inputFile[:-4], protein))
     #generate_graph(final_data, comp, protein)
