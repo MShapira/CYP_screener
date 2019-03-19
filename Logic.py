@@ -48,23 +48,14 @@ def parse_the_input()->dict:
             df = df.drop('Temperature(¡C)', axis=1)
 
         experiments[dict_index].append(df)
-        pprint(experiments[dict_index])
+        # pprint(experiments[dict_index])
 
         if plate_index % 2 == 0:
             dict_index += 1
 
+    pprint(type(experiments[0][1]))
+
     return experiments
-
-
-# get the working area
-def get_area(experiment: list)->list:
-    # if two lists of column names are equal then the range is common
-    if list(experiment[0].columns) == list(experiment[1].columns):
-        # print('Working range is {0}\n'.format(list(experiment[0].columns)[1:]))
-        return list(experiment[0].columns)[1:]
-    else:
-        # print('Working ranges are not the same!')
-        return list(experiment[0].columns)[1:]
 
 
 # construct the list of wells with calculated spectra
@@ -97,3 +88,11 @@ def select_file():
     file_name = filedialog.askopenfilename(filetypes=([('All files', '*.*'), ('Text files', '*.txt')]))
 
     return file_name
+
+
+# initialize the button
+def initialize_the_button():
+    button = tkinter.Button(plate_tab, width=5, text=button_text)
+    button.bind('<ButtonRelease-3>', show_well_button_popup)
+    button.label = button_text
+    button.grid(row=row_index, column=column_index)
