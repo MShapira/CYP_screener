@@ -1,10 +1,15 @@
 import tkinter
 
 
+def set_selected_well_as_protein_well(button):
+    plate = button.plate
+    well_position = button.label
+    plate.set_proten_well_position(well_position)
+
+
 # this function is called after right click on well button
 def show_well_button_popup(event):
     button = event.widget
-    print(button.label) # as you can see, we can access to button that was pressed
 
     type_labels = ['blank / protein', 'inhibitor', 'substrate', 'type I', 'reverse type I', 'type II', 'reverse type II(?)', 'sample']
 
@@ -12,15 +17,11 @@ def show_well_button_popup(event):
     type_variable = tkinter.IntVar()
     type_variable.set(3)
 
-    # construct type sub-menu
-    type_menu = tkinter.Menu(window, tearoff=0)
-    for i in range(len(type_labels)):
-        type_menu.add_radiobutton(label=type_labels[i], value=i, variable=type_variable)
-
     # construct pop-up menu
     popup = tkinter.Menu(window, tearoff=0)
+    popup.add_command(label='set as protein / blank well', command=lambda: set_selected_well_as_protein_well(button))
+    popup.add_separator()
     popup.add_command(label='set name...')
-    popup.add_cascade(label='type', menu=type_menu)
     popup.add_separator()
     popup.add_command(label='save graph...')
     popup.add_separator()
@@ -34,13 +35,13 @@ def show_well_button_popup(event):
 
 
 # initialize the sample button
-def initialize_button(plate_tab, button_text, row_index, column_index, state='enabled'):
+def initialize_button(plate_tab, plate, button_text, row_index, column_index, state='normal'):
     button = tkinter.Button(plate_tab, width=5, text=button_text)
-    if state == 'disabled':
-        button.config(state=state)
+    button.config(state=state)
     button.bind('<ButtonRelease-3>', show_well_button_popup)
     button.label = button_text
     button.grid(row=row_index, column=column_index)
+    button.plate = plate
 
     return button
 

@@ -2,23 +2,37 @@ from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 from pandas import *
 from mathtools import baseline_als
-
+from tkinter import Button
 
 class Well:
-    def __init__(self, position: str = '', name: str = '', type: str = '', raw_data: list = list()):
+    def __init__(self, position: str = '', button: Button = None, name: str = '', type: str = '', raw_data: list = list()):
         self.position = position
         self.name = name
         if self.name == '':
             self.name = self.position
         self.type = type
-        self.spectrum = dict()
+        self.spectrum = list()
         self.raw_data = raw_data
+        self.answer = None
+        self.button = button
 
     def __str__(self):
         return 'Name: {0}\n'.format(self.name) + \
                'Position: {0}\n'.format(self.position) + \
                'Type: {0}\n'.format(self.type) + \
                '\n'
+
+    def update_button_apperance(self):
+        print(f'updating button appearance for {self.position}, answer is {self.answer}')
+        if self.button is None:
+            print('attempt to update button appearance for well that does not have a button!')
+        else:
+            if self.answer is None:
+                self.button['bg'] = 'grey'
+            elif self.answer:
+                self.button['bg'] ='green'
+            else:
+                self.button['bg'] = 'red'
 
     # generate graph
     def generate_graph(self, prot: str, save: bool = False):
@@ -61,6 +75,10 @@ class Plate:
         # if two lists of column names are equal then the range is common
         if list(self.raw_data[0].columns) == list(self.raw_data[1].columns):
             self.working_area =  list(self.raw_data[0].columns)[1:]
+
+    def set_proten_well_position(self, position: str):
+        self.protein_well = position
+        print(f'plate #{self.number+1}: protein well position set to {position}')
 
     # calculate only one half (sample part) of the difference spectrum equation
     def calculate_difference_for_well(self, well_position: str)-> list():
