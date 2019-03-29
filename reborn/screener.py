@@ -51,6 +51,7 @@ class Well:
         pyplot.plot(x, y_smoothed, color='red')
         pyplot.xlabel('Wavelength, nm')
         pyplot.ylabel('Optical Density, A')
+        pyplot.legend(['raw', 'smoothed'])
         title = f'{self.position} [{self.plate_name}]'  # TODO: pass here well name when implemented
         fig.canvas.set_window_title(title)
         pyplot.title(title)
