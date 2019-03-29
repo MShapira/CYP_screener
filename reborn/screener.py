@@ -1,12 +1,15 @@
 import io
 import tkinter
+import numpy
+import matplotlib.pyplot as pyplot
+from scipy.signal import savgol_filter
 from tkinter import ttk, filedialog, font
 from pandas import concat, read_csv, DataFrame
 
 
 # TODO:
 # - call logic from Friday script to get answers for wells
-# - implement showing (and saving) graphs for wells
+# - implement saving graphs for wells
 # - what about well types (like inhibitor, substrate, sample)?
 # - what does 'inactivate' mean for well?
 
@@ -22,7 +25,8 @@ def construct_well_position(row_index: int, column_index: int) -> str:
     return f'{well_row_captions[row_index]}{column_index+1}'
 
 class Well:
-    def __init__(self, position: str, first_half_spectrum: DataFrame, second_half_spectrum: DataFrame):
+    def __init__(self, plate_name: str, position: str, first_half_spectrum: DataFrame, second_half_spectrum: DataFrame):
+        self.plate_name = plate_name
         self.position = position
         self.first_half_spectrum = first_half_spectrum
         self.second_half_spectrum = second_half_spectrum
@@ -32,6 +36,25 @@ class Well:
         # spectrum = (U2_x - U1_x) - (U2_p - U1_p), right?
         spectrum = self.second_half_spectrum - self.first_half_spectrum - (protein_well.second_half_spectrum - protein_well.first_half_spectrum)
         self.differential_spectrum = concat([wavelengths, spectrum], axis=1, keys=['Wavelength', 'Difference'])
+
+    def show_differential_spectrum_graph(self):
+        if self.differential_spectrum is None:
+            print('WARNING: attempt to show differential spectrum graph for well that does not have differential spectrum')
+            return
+        
+        x = self.differential_spectrum['Wavelength']
+        y = self.differential_spectrum['Difference']
+        # smooth the curve
+        y_smoothed = savgol_filter(y, 15, 3)  # window size 15, polynomial order 3
+        fig = pyplot.figure()
+        pyplot.plot(x, y, color='blue')
+        pyplot.plot(x, y_smoothed, color='red')
+        pyplot.xlabel('Wavelength, nm')
+        pyplot.ylabel('Optical Density, A')
+        title = f'{self.position} [{self.plate_name}]'  # TODO: pass here well name when implemented
+        fig.canvas.set_window_title(title)
+        pyplot.title(title)
+        pyplot.show()
 
 
 class PlateRawData:
@@ -65,7 +88,7 @@ class Plate:
                 # skip well that is not presented in data
                 if not well_position in raw_data.first_half_data.keys():
                     continue
-                well = Well(well_position, raw_data.first_half_data[well_position], raw_data.second_half_data[well_position])
+                well = Well(raw_data.get_combined_name(), well_position, raw_data.first_half_data[well_position], raw_data.second_half_data[well_position])
                 wells.append(well)
 
         return wells
@@ -135,17 +158,39 @@ class Screener:
         if disabled:
             button.config(state='disabled')
         else:
+            button.bind('<ButtonRelease-1>', self.show_well_graph)
             button.bind('<ButtonRelease-3>', self.show_well_button_popup)
         button.grid(row=row_index, column=column_index)
+
+    def show_well_graph(self, event):
+        button = event.widget
+
+        plate = self.get_plate_for_button(button)
+        # we cannot show graph if protein well is not set yet for plate
+        if plate.protein_well_position is None:
+            print(f'WARNING: cannot show differential spectrum for well from plate #{plate.raw_data.index+1} - protein well is not set')
+            return
+
+        well = self.get_corresponding_well(button)
+        # construct differential spectrum for well
+        well.construct_differential_spectrum(plate.raw_data.wavelengths, plate.get_well(plate.protein_well_position))
+        well.show_differential_spectrum_graph()
 
     def show_well_button_popup(self, event):
         button = event.widget
         window = button.master.master.master
 
+        plate = self.get_plate_for_button(button)
+        well = self.get_corresponding_well(button)
+
         # construct pop-up menu
         popup = tkinter.Menu(window, tearoff=0)
-        popup.add_command(label='set as protein / blank well',
-                          command=lambda: self.set_selected_well_as_protein_well(button))
+        # add 'set protein well' command only if corresponding well is not already set as protein well
+        if plate.protein_well_position != well.position:
+            popup.add_command(label='set as protein / blank well',
+                              command=lambda: self.set_selected_well_as_protein_well(button))
+        else:
+            popup.add_command(label='[this well is already set as protein / blank well]', state='disabled')
         popup.add_separator()
         popup.add_command(label='set name...', state='disabled')
         popup.add_separator()
@@ -159,6 +204,14 @@ class Screener:
         finally:
             popup.grab_release()
 
+    def get_corresponding_well(self, button: ttk.Button) -> Well:
+        # find corresponding plate
+        plate = self.get_plate_for_button(button)
+
+        # then find well
+        well_position = Screener.get_position_for_button(button)
+        return plate.get_well(well_position)
+
     def set_selected_well_as_protein_well(self, button: ttk.Button):
         plate = self.get_plate_for_button(button)
 
@@ -169,7 +222,7 @@ class Screener:
 
         # store protein well position for active plate
         plate.protein_well_position = Screener.get_position_for_button(button)
-        print(f'protein well position as {plate.protein_well_position} for plate #{plate.raw_data.index+1}')
+        print(f'plate #{plate.raw_data.index+1}: set protein well position as {plate.protein_well_position}')
 
         # highlight new protein well button
         self.set_well_button_style(button, True)
