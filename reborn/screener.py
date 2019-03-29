@@ -2,6 +2,7 @@ import io
 import tkinter
 import numpy
 import matplotlib.pyplot as pyplot
+from scipy import sparse
 from scipy.signal import savgol_filter
 from tkinter import ttk, filedialog, font
 from pandas import concat, read_csv, DataFrame
@@ -10,7 +11,6 @@ from pandas import concat, read_csv, DataFrame
 # TODO:
 # - call logic from Friday script to get answers for wells
 # - implement saving graphs for wells (is it still needed as a separate action?)
-# - implement baseline calculation for differential spectrum graphs
 # - what about well types (like inhibitor, substrate, sample)?
 # - what does 'inactivate' mean for well?
 # - do we need a mechanism to easily swap first and second halfs for plates?
@@ -25,6 +25,23 @@ def construct_well_position(row_index: int, column_index: int) -> str:
         helper function converting indices like (2, 0) to text like 'C1'
     '''
     return f'{well_row_captions[row_index]}{column_index+1}'
+
+
+def calculate_baseline(y, lam=1e+7, p=0.001, niter=10):
+    '''
+        for now just copied "as is" from original screener code,
+        but requires explanations
+    '''
+    L = len(y)
+    D = sparse.csc_matrix(numpy.diff(numpy.eye(L), 2))
+    w = numpy.ones(L)
+    for i in range(niter):
+        W = sparse.spdiags(w, 0, L, L)
+        Z = W + lam * D.dot(D.transpose())
+        z = sparse.linalg.spsolve(Z, w * y)
+        w = p * (y > z) + (1 - p) * (y < z)
+    return z
+
 
 class Well:
     def __init__(self, plate_name: str, position: str, first_half_spectrum: DataFrame, second_half_spectrum: DataFrame):
@@ -47,12 +64,14 @@ class Well:
         x = self.differential_spectrum['Wavelength']
         y_raw = self.differential_spectrum['Difference']
         y_smoothed = savgol_filter(y_raw, 15, 3)
+        y_baseline = calculate_baseline(y_smoothed)
         fig = pyplot.figure()
         pyplot.plot(x, y_raw, color='blue')
         pyplot.plot(x, y_smoothed, color='red')
+        pyplot.plot(x, y_smoothed - y_baseline, color='green')
         pyplot.xlabel('Wavelength, nm')
         pyplot.ylabel('Optical Density, A')
-        pyplot.legend(['raw', 'smoothed'])
+        pyplot.legend(['raw', 'smoothed', 'smoothed - baseline'])
         title = f'{self.position} [{self.plate_name}]'  # TODO: pass here well name when implemented
         fig.canvas.set_window_title(title)
         pyplot.title(title)
