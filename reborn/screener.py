@@ -1,16 +1,36 @@
 import io
 import tkinter
 from tkinter import ttk, filedialog, font
-from pandas import read_csv, DataFrame
+from pandas import concat, read_csv, DataFrame
 
 
 well_row_captions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 well_column_count = 12
 
 
+def construct_well_position(row_index: int, column_index: int) -> str:
+    '''
+        helper function converting indices like (2, 0) to text like 'C1'
+    '''
+    return f'{well_row_captions[row_index]}{column_index+1}'
+
+class Well:
+    def __init__(self, position: str, first_half_spectrum: DataFrame, second_half_spectrum: DataFrame):
+        self.position = position
+        self.first_half_spectrum = first_half_spectrum
+        self.second_half_spectrum = second_half_spectrum
+        self.differential_spectrum = None
+
+    def construct_differential_spectrum(self, wavelengths: DataFrame, protein_well):
+        # spectrum = (U2_x - U1_x) - (U2_p - U1_p), right?
+        spectrum = self.second_half_spectrum - self.first_half_spectrum - (protein_well.second_half_spectrum - protein_well.first_half_spectrum)
+        self.differential_spectrum = concat([wavelengths, spectrum], axis=1, keys=['Wavelength', 'Difference'])
+
+
 class PlateRawData:
     def __init__(self, index: int, first_half_header: str, first_half_data: DataFrame, second_half_header: str, second_half_data: DataFrame):
         self.index = index
+        self.wavelengths = first_half_data['Wavelength']
         self.first_half_header = first_half_header
         self.first_half_data = first_half_data
         self.second_half_header = second_half_header
@@ -26,6 +46,29 @@ class Plate:
     def __init__(self, raw_data: PlateRawData):
         self.raw_data = raw_data
         self.protein_well_position = None
+        self.wells = Plate.construct_wells(raw_data)
+
+    @staticmethod
+    def construct_wells(raw_data: PlateRawData) -> list:
+        wells = list()
+
+        for row_index in range(len(well_row_captions)):
+            for column_index in range(well_column_count):
+                well_position = construct_well_position(row_index, column_index)
+                # skip well that is not presented in data
+                if not well_position in raw_data.first_half_data.keys():
+                    continue
+                well = Well(well_position, raw_data.first_half_data[well_position], raw_data.second_half_data[well_position])
+                wells.append(well)
+
+        return wells
+
+    def get_well(self, position: str) -> Well:
+        for well in self.wells:
+            if well.position == position:
+                return well
+        print(f'WARNING: attempt to get well {position} for plate #{self.index+1} failed - no such well')
+        return None
 
 
 class Screener:
@@ -66,7 +109,7 @@ class Screener:
             plate_tab_control.add(plate_tab, text=plate.raw_data.get_combined_name())
             for row_index in range(len(well_row_captions)):
                 for column_index in range(well_column_count):
-                    button_position = f'{well_row_captions[row_index]}{column_index+1}'
+                    button_position = construct_well_position(row_index, column_index)
                     disabled = button_position not in plate.raw_data.first_half_data.keys()
                     self.construct_well_button(plate_tab, row_index, column_index, disabled)
         else:
@@ -78,7 +121,7 @@ class Screener:
                     self.construct_well_button(plate_tab, row_index, column_index)
 
     def construct_well_button(self, tab: ttk.Frame, row_index: int, column_index: int, disabled: bool = True):
-        position = f'{well_row_captions[row_index]}{column_index+1}'
+        position = construct_well_position(row_index, column_index)
         name = f'button_{position}'
         button = tkinter.Button(tab, width=5, text=position, name=name)
         Screener.set_well_button_style(button, False)
@@ -246,9 +289,32 @@ class Screener:
         return self.window.children['bottom_panel'].children['run_button']
 
     def calculate_well_answers(self):
-        # get answers
-        # update buttons
-        pass
+        for plate in self.plates:
+            # skip plates where protein well position is not set
+            if plate.protein_well_position is None:
+                continue
+
+            # process wells
+            protein_well = plate.get_well(plate.protein_well_position)
+            for well in plate.wells:
+                # skip protein well
+                if well.position == plate.protein_well_position:
+                    continue
+
+                well.construct_differential_spectrum(plate.raw_data.wavelengths, protein_well)
+
+                # TODO: run logic from Friday to get answer for well
+                answer = False
+
+                # update correpsonding UI
+                self.update_well_button_appearance(plate.raw_data.index, well.position, answer)
+
+    def update_well_button_appearance(self, plate_index: int, well_position: str, answer: bool):
+        button = self.get_button_for_well(plate_index, well_position)
+        if answer:
+            button['bg'] = 'green'
+        else:
+            button['bg'] = 'red'
 
 
 if __name__ == '__main__':
