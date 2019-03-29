@@ -2,14 +2,17 @@ import io
 import tkinter
 import numpy
 import matplotlib.pyplot as pyplot
-from scipy.signal import savgol_filter
 from tkinter import ttk, filedialog, font
 from pandas import concat, read_csv, DataFrame
+from scipy import sparse
+from scipy.signal import savgol_filter
+from scipy.sparse.linalg import spsolve
+from Spectrum_check import check_the_spectra
 
 
 # TODO:
 # - call logic from Friday script to get answers for wells
-# - implement saving graphs for wells (is it still needed as a separate action?)
+# - implement saving graphs for wells (is it still needed as a separate action - yes?)
 # - implement baseline calculation for differential spectrum graphs
 # - what about well types (like inhibitor, substrate, sample)?
 # - what does 'inactivate' mean for well?
@@ -33,11 +36,35 @@ class Well:
         self.first_half_spectrum = first_half_spectrum
         self.second_half_spectrum = second_half_spectrum
         self.differential_spectrum = None
+        self.corrected_spectrum = None
 
     def construct_differential_spectrum(self, wavelengths: DataFrame, protein_well):
-        # spectrum = (U2_x - U1_x) - (U2_p - U1_p), right?
-        spectrum = self.second_half_spectrum - self.first_half_spectrum - (protein_well.second_half_spectrum - protein_well.first_half_spectrum)
+        # spectrum = (U2_x - U1_x) + (U1_p - U2_p)
+        spectrum = self.second_half_spectrum - self.first_half_spectrum + (protein_well.first_half_spectrum - protein_well.second_half_spectrum)
         self.differential_spectrum = concat([wavelengths, spectrum], axis=1, keys=['Wavelength', 'Difference'])
+        print(type(self.differential_spectrum))
+
+    def construct_corrected_spectrum(self):
+
+        # baseline correction
+        # y - 1D array of y_coords, lam - lambda for smoothness (10^2 <= λ <= 10^9), p for asymmetry (0.001 <= p <= 0.1)
+        def baseline_correction(y, lam: int = 10000, p: float = 0.01, niter: int = 15):
+            L = len(y)
+            D = sparse.csc_matrix(numpy.diff(numpy.eye(L), 2))
+            w = numpy.ones(L)
+            for i in range(niter):
+                W = sparse.spdiags(w, 0, L, L)
+                Z = W + lam * D.dot(D.transpose())
+                z = spsolve(Z, w * y)
+                w = p * (y > z) + (1 - p) * (y < z)
+
+            return z
+
+        baseline = baseline_correction(self.differential_spectrum['Difference'])
+        corrected_spectrum = []
+        for i in range(0, len(self.differential_spectrum['Difference'])):
+            corrected_spectrum.append(self.differential_spectrum['Difference'][i] - baseline[i])
+        self.corrected_spectrum = [x for x in savgol_filter(corrected_spectrum, 15, 3)]
 
     def show_differential_spectrum_graph(self):
         if self.differential_spectrum is None:
@@ -46,10 +73,10 @@ class Well:
         
         x = self.differential_spectrum['Wavelength']
         y_raw = self.differential_spectrum['Difference']
-        y_smoothed = savgol_filter(y_raw, 15, 3)
+        y_smoothed = self.corrected_spectrum[30:120]
         fig = pyplot.figure()
         pyplot.plot(x, y_raw, color='blue')
-        pyplot.plot(x, y_smoothed, color='red')
+        pyplot.plot(x[30:120], y_smoothed, color='red')
         pyplot.xlabel('Wavelength, nm')
         pyplot.ylabel('Optical Density, A')
         pyplot.legend(['raw', 'smoothed'])
@@ -371,9 +398,10 @@ class Screener:
                     continue
 
                 well.construct_differential_spectrum(plate.raw_data.wavelengths, protein_well)
+                well.construct_corrected_spectrum()
 
                 # TODO: run logic from Friday to get answer for well
-                answer = False
+                answer = check_the_spectra(well.corrected_spectrum, well.differential_spectrum)
 
                 # update correpsonding UI
                 self.update_well_button_appearance(plate.raw_data.index, well.position, answer)
