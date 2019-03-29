@@ -4,6 +4,13 @@ from tkinter import ttk, filedialog, font
 from pandas import concat, read_csv, DataFrame
 
 
+# TODO:
+# - call logic from Friday script to get answers for wells
+# - implement showing (and saving) graphs for wells
+# - what about well types (like inhibitor, substrate, sample)?
+# - what does 'inactivate' mean for well?
+
+
 well_row_captions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 well_column_count = 12
 
