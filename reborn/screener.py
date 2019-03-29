@@ -9,9 +9,11 @@ from pandas import concat, read_csv, DataFrame
 
 # TODO:
 # - call logic from Friday script to get answers for wells
-# - implement saving graphs for wells
+# - implement saving graphs for wells (is it still needed as a separate action?)
+# - implement baseline calculation for differential spectrum graphs
 # - what about well types (like inhibitor, substrate, sample)?
 # - what does 'inactivate' mean for well?
+# - do we need a mechanism to easily swap first and second halfs for plates?
 
 
 well_row_captions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
@@ -43,11 +45,10 @@ class Well:
             return
         
         x = self.differential_spectrum['Wavelength']
-        y = self.differential_spectrum['Difference']
-        # smooth the curve
-        y_smoothed = savgol_filter(y, 15, 3)  # window size 15, polynomial order 3
+        y_raw = self.differential_spectrum['Difference']
+        y_smoothed = savgol_filter(y_raw, 15, 3)
         fig = pyplot.figure()
-        pyplot.plot(x, y, color='blue')
+        pyplot.plot(x, y_raw, color='blue')
         pyplot.plot(x, y_smoothed, color='red')
         pyplot.xlabel('Wavelength, nm')
         pyplot.ylabel('Optical Density, A')
@@ -70,6 +71,11 @@ class PlateRawData:
     def get_combined_name(self) -> str:
         first_half_name = self.first_half_header.split('\tTimeFormat')[0].split('Plate:\t')[1]
         second_half_name = self.second_half_header.split('\tTimeFormat')[0].split('Plate:\t')[1]
+        
+        # cut strange right part with numbers
+        first_half_name = first_half_name.split('\t')[0]
+        second_half_name = second_half_name.split('\t')[0]
+
         return f'{first_half_name} / {second_half_name}'
 
 
@@ -98,6 +104,8 @@ class Plate:
         for well in self.wells:
             if well.position == position:
                 return well
+        
+        # if we are here then well was not found
         print(f'WARNING: attempt to get well {position} for plate #{self.index+1} failed - no such well')
         return None
 
@@ -110,7 +118,7 @@ class Screener:
         self.construct_bottom_panel()
 
         # add one empty plate just to have some visible buttons
-        self.add_plate_tab(None)
+        self.add_plate_tab()
 
         # setup data
         self.plates = list()
