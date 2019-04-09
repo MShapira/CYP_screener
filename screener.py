@@ -11,10 +11,10 @@ from Spectrum_check import check_the_spectra
 
 
 # TODO:
-# - implement saving graphs for wells (is it still needed as a separate action? yes)
-# - what about well types (like inhibitor, substrate, sample)?
-# - what does 'inactivate' mean for well? if well is inactivated, do not compute answer for it
-# - implement own text style for inhibitor well button
+# - implement well inactivation: if well is inactivated, do not compute answer for it
+# - press middle mouse button to add well to graph saving list; then pressing "save graphs" button shows folder selecting popup where graphs should be saved
+# - pressing "load substances names" button shows file selecting popup containing list of names which should be set in corresponding wells
+#   (when showing graph, use such name instead of well position)
 
 
 well_row_captions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
@@ -132,7 +132,7 @@ class Plate:
                 return well
         
         # if we are here then well was not found
-        print(f'WARNING: attempt to get well {position} for plate #{self.index+1} failed - no such well')
+        print(f'WARNING: attempt to get well {position} for plate #{self.raw_data.index+1} failed - no such well')
         return None
 
 
@@ -195,7 +195,6 @@ class Screener:
         position = construct_well_position(row_index, column_index)
         name = f'button_{position}'
         button = tkinter.Button(tab, width=5, text=position, name=name)
-        Screener.set_well_button_style(button, False)
         if disabled:
             button.config(state='disabled')
         else:
@@ -233,7 +232,9 @@ class Screener:
         else:
             popup.add_command(label='[this well is already set as protein / blank well]', state='disabled')
         # add 'set substrate well' command only if corresponding well is not already set as substrate well
-        if plate.substrate_well_position != well.position:
+        if well.position == plate.protein_well_position:
+            popup.add_command(label='[this well cannot be set as substrate / inhibitor well]', state='disabled')
+        elif plate.substrate_well_position != well.position:
             popup.add_command(label='set as substrate / inhibitor well',
                               command=lambda: self.set_selected_well_as_substrate_well(button))
         else:
@@ -265,14 +266,14 @@ class Screener:
         # un-highlight previous protein well button for active plate (if any)
         if plate.protein_well_position is not None:
             previous_protein_well_button = self.get_button_for_well(plate.raw_data.index, plate.protein_well_position)
-            self.set_well_button_style(previous_protein_well_button, False)
+            self.set_well_button_caption(previous_protein_well_button, plate.protein_well_position)
 
         # store protein well position for active plate
         plate.protein_well_position = Screener.get_position_for_button(button)
         print(f'plate #{plate.raw_data.index+1}: set protein well position as {plate.protein_well_position}')
 
         # highlight new protein well button
-        self.set_well_button_style(button, True)
+        self.set_well_button_caption(button, 'blank')
 
         # when any well marked as protein well, enable 'run' button
         self.get_run_button().configure(state='normal')
@@ -283,14 +284,14 @@ class Screener:
         # un-highlight previous substrate well button for active plate (if any)
         if plate.substrate_well_position is not None:
             previous_substrate_well_button = self.get_button_for_well(plate.raw_data.index, plate.substrate_well_position)
-            self.set_well_button_style(previous_substrate_well_button, False)
+            self.set_well_button_caption(previous_substrate_well_button, plate.substrate_well_position)
 
         # store substrate well position for active plate
         plate.substrate_well_position = Screener.get_position_for_button(button)
         print(f'plate #{plate.raw_data.index+1}: set substrate well position as {plate.substrate_well_position}')
 
         # highlight new substrate well button
-        self.set_well_button_style(button, True)
+        self.set_well_button_caption(button, 'substr')
 
     def get_plate_for_button(self, button: ttk.Button) -> Plate:
         plate_tab_name = button.winfo_parent().split('.')[-1]
@@ -299,14 +300,11 @@ class Screener:
 
     @staticmethod
     def get_position_for_button(button: ttk.Button) -> str:
-        return button.config('text')[-1]  # that's just a kind of TKinter magic, so trust me
+        return button.winfo_name().split('_')[1]
 
     @staticmethod
-    def set_well_button_style(button: ttk.Button, highlighted: bool):
-        if highlighted:
-            button.configure(font=font.Font(size=10, weight='bold', slant='roman', underline=1))
-        else:
-            button.configure(font=font.Font(size=10, weight='normal', slant='italic'))
+    def set_well_button_caption(button: ttk.Button, caption: str):
+        button.configure(text=caption)
 
     def construct_bottom_panel(self):
         panel = ttk.Frame(self.window, height=20, name='bottom_panel')
