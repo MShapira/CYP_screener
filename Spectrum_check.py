@@ -151,6 +151,10 @@ def get_the_answer(answer_range):
                         return False
             else:
                 return False
+        else:
+            return False
+    else:
+        return False
 
 
 def check_the_spectra(corrected_spectrum: list, differential_spectrum: DataFrame):

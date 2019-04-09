@@ -11,12 +11,10 @@ from Spectrum_check import check_the_spectra
 
 
 # TODO:
-# - call logic from Friday script to get answers for wells
-# - implement saving graphs for wells (is it still needed as a separate action - yes?)
-# - implement baseline calculation for differential spectrum graphs
+# - implement saving graphs for wells (is it still needed as a separate action? yes)
 # - what about well types (like inhibitor, substrate, sample)?
-# - what does 'inactivate' mean for well?
-# - do we need a mechanism to easily swap first and second halfs for plates?
+# - what does 'inactivate' mean for well? if well is inactivated, do not compute answer for it
+# - implement own text style for inhibitor well button
 
 
 well_row_captions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
@@ -110,6 +108,7 @@ class Plate:
     def __init__(self, raw_data: PlateRawData):
         self.raw_data = raw_data
         self.protein_well_position = None
+        self.substrate_well_position = None
         self.wells = Plate.construct_wells(raw_data)
 
     @staticmethod
@@ -135,6 +134,12 @@ class Plate:
         # if we are here then well was not found
         print(f'WARNING: attempt to get well {position} for plate #{self.index+1} failed - no such well')
         return None
+
+
+def get_vertical_width_for_spectrum(spectrum: list) -> float:
+    lowest_value = min(spectrum[30:120])
+    highest_value = max(spectrum[30:120])
+    return highest_value - lowest_value
 
 
 class Screener:
@@ -227,6 +232,12 @@ class Screener:
                               command=lambda: self.set_selected_well_as_protein_well(button))
         else:
             popup.add_command(label='[this well is already set as protein / blank well]', state='disabled')
+        # add 'set substrate well' command only if corresponding well is not already set as substrate well
+        if plate.substrate_well_position != well.position:
+            popup.add_command(label='set as substrate / inhibitor well',
+                              command=lambda: self.set_selected_well_as_substrate_well(button))
+        else:
+            popup.add_command(label='[this well is already set as substrate / inhibitor well]', state='disabled')
         popup.add_separator()
         popup.add_command(label='set name...', state='disabled')
         popup.add_separator()
@@ -265,6 +276,21 @@ class Screener:
 
         # when any well marked as protein well, enable 'run' button
         self.get_run_button().configure(state='normal')
+
+    def set_selected_well_as_substrate_well(self, button: ttk.Button):
+        plate = self.get_plate_for_button(button)
+
+        # un-highlight previous substrate well button for active plate (if any)
+        if plate.substrate_well_position is not None:
+            previous_substrate_well_button = self.get_button_for_well(plate.raw_data.index, plate.substrate_well_position)
+            self.set_well_button_style(previous_substrate_well_button, False)
+
+        # store substrate well position for active plate
+        plate.substrate_well_position = Screener.get_position_for_button(button)
+        print(f'plate #{plate.raw_data.index+1}: set substrate well position as {plate.substrate_well_position}')
+
+        # highlight new substrate well button
+        self.set_well_button_style(button, True)
 
     def get_plate_for_button(self, button: ttk.Button) -> Plate:
         plate_tab_name = button.winfo_parent().split('.')[-1]
@@ -392,6 +418,8 @@ class Screener:
 
             # process wells
             protein_well = plate.get_well(plate.protein_well_position)
+            min_vertical_width = None
+            max_vertical_width = None
             for well in plate.wells:
                 # skip protein well
                 if well.position == plate.protein_well_position:
@@ -401,15 +429,45 @@ class Screener:
                 well.construct_corrected_spectrum()
 
                 # TODO: run logic from Friday to get answer for well
-                answer = check_the_spectra(well.corrected_spectrum, well.differential_spectrum)
+                well.answer = check_the_spectra(well.corrected_spectrum, well.differential_spectrum)
+                well.vertical_width = get_vertical_width_for_spectrum(well.corrected_spectrum)
 
-                # update correpsonding UI
-                self.update_well_button_appearance(plate.raw_data.index, well.position, answer)
+                if min_vertical_width is None:
+                    min_vertical_width = well.vertical_width
+                else:
+                    min_vertical_width = min(min_vertical_width, well.vertical_width)
 
-    def update_well_button_appearance(self, plate_index: int, well_position: str, answer: bool):
+                if plate.substrate_well_position is None:
+                    if max_vertical_width is None:
+                        max_vertical_width = well.vertical_width
+                    else:
+                        max_vertical_width = max(max_vertical_width, well.vertical_width)
+
+            if plate.substrate_well_position is not None:
+                substrate_well = [w for w in plate.wells if w.position == plate.substrate_well_position][0]
+                max_vertical_width = substrate_well.vertical_width
+
+            # update correpsonding UI
+            for well in plate.wells:
+                if well.position == plate.protein_well_position:
+                    self.update_well_button_appearance(plate.raw_data.index, well.position, None, None)
+                else:
+                    relative_vertical_width = (well.vertical_width - min_vertical_width) / (max_vertical_width - min_vertical_width)
+                    self.update_well_button_appearance(plate.raw_data.index, well.position, well.answer, relative_vertical_width)
+
+    def update_well_button_appearance(self, plate_index: int, well_position: str, answer: bool, relative_vertical_width: float):
         button = self.get_button_for_well(plate_index, well_position)
-        if answer:
-            button['bg'] = 'green'
+        if answer is None:
+            button['bg'] = 'grey'
+        elif answer:
+            if relative_vertical_width < 0.2:
+                button['bg'] = 'grey'
+            elif relative_vertical_width < 0.6:
+                button['bg'] = 'yellow'
+            elif relative_vertical_width < 0.8:
+                button['bg'] = '#77ff77'
+            else:
+                button['bg'] = 'green'
         else:
             button['bg'] = 'red'
 
