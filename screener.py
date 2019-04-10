@@ -12,7 +12,7 @@ from Spectrum_check import check_the_spectra
 
 
 # TODO:
-# - save graphs for active plate (not first one)
+# - show correct caption (number of marked wells) on 'save graphs...' button
 # - pressing "load substances names" button shows file selecting popup containing list of names which should be set in corresponding wells
 #   (when showing graph, use such name instead of well position)
 
@@ -182,6 +182,15 @@ class Screener:
 
         tab_control = ttk.Notebook(panel, name='plate_tab_control')
         tab_control.pack(expand=1, fill='both')
+
+    def get_plate_tab_control(self) -> ttk.Notebook:
+        return self.window.children['plate_panel'].children['plate_tab_control']
+
+    def get_active_plate(self) -> Plate:
+        tab_control = self.get_plate_tab_control()
+        active_plate_index = int(str(tab_control.select()).split('_')[-1])
+
+        return self.plates[active_plate_index]
 
     def add_plate_tab(self, plate: Plate = None):
         plate_tab_control = self.get_plate_tab_control()
@@ -521,8 +530,7 @@ class Screener:
                     self.update_well_button_appearance(plate.raw_data.index, well.position, well.answer, relative_vertical_width)
 
     def save_graphs(self):
-        # get active plate
-        plate = self.plates[0]
+        plate = self.get_active_plate()
 
         # show folder selection pop-up
         output_folder_name = filedialog.askdirectory(title=f'select folder for graphs from [{plate.raw_data.get_combined_name()}]')
