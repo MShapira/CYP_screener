@@ -387,15 +387,19 @@ class Screener:
 
         # 'select file...' button
         select_file_button = ttk.Button(panel, width=20, text='select file...', name='select_file_button', command=self.open_data_file)
-        select_file_button.pack(side=tkinter.LEFT, padx=5, pady=5)
+        select_file_button.pack(side=tkinter.LEFT, padx=4, pady=5)
 
         # 'run' button
         run_button = ttk.Button(panel, width=20, text='run', name='run_button', state='disabled', command=self.calculate_well_answers)
-        run_button.pack(side=tkinter.LEFT, padx=5)
+        run_button.pack(side=tkinter.LEFT, padx=4)
 
         # 'save graphs...' button
         save_graphs_button = ttk.Button(panel, width=20, text='save graphs...', name='save_graphs_button', state='disabled', command=self.save_graphs)
-        save_graphs_button.pack(side=tkinter.RIGHT, padx=5)
+        save_graphs_button.pack(side=tkinter.RIGHT, padx=4)
+
+        # 'load protein names...' button
+        load_protein_names_button = ttk.Button(panel, width=20, text='load protein names...', name='load_protein_names_button', state='disabled', command=self.load_protein_names)
+        load_protein_names_button.pack(side=tkinter.RIGHT, padx=4)
 
     def get_plate_tab_control(self) -> ttk.Notebook:
         return self.window.children['plate_panel'].children['plate_tab_control']
@@ -484,12 +488,17 @@ class Screener:
         # disable 'run' and 'save graphs...' buttons
         self.get_run_button().configure(state='disabled')
         self.get_save_graphs_button().configure(state='disabled')
+        # enable 'load protein names...' button
+        self.get_load_protein_names_button().configure(state='normal')
 
     def get_run_button(self):
         return self.window.children['bottom_panel'].children['run_button']
     
     def get_save_graphs_button(self):
         return self.window.children['bottom_panel'].children['save_graphs_button']
+
+    def get_load_protein_names_button(self):
+        return self.window.children['bottom_panel'].children['load_protein_names_button']
 
     def calculate_well_answers(self):
         for plate in self.plates:
@@ -554,6 +563,9 @@ class Screener:
                 well.construct_differential_spectrum(plate.raw_data.wavelengths, plate.get_well(plate.protein_well_position))
                 well.construct_corrected_spectrum()
                 well.construct_spectrum_graphs(output_folder_name)
+
+    def load_protein_names(self):
+        print('WARNING: loading protein names is not implemented yet')
 
     def update_well_button_appearance(self, plate_index: int, well_position: str, answer: bool, relative_vertical_width: float):
         button = self.get_button_for_well(plate_index, well_position)
