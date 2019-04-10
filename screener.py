@@ -2,7 +2,7 @@ import io
 import tkinter
 import numpy
 import matplotlib.pyplot as pyplot
-from os import path
+from os import path, makedirs
 from tkinter import ttk, filedialog, font
 from pandas import concat, read_csv, DataFrame
 from scipy import sparse
@@ -573,6 +573,8 @@ class Screener:
 
         # show folder selection pop-up
         output_folder_name = filedialog.askdirectory(title=f'select folder for graphs from [{plate.raw_data.get_combined_name()}]')
+        if not path.isdir(output_folder_name):
+            makedirs(output_folder_name)
         
         # save graphs
         for well in plate.wells:
