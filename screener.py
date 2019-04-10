@@ -12,7 +12,6 @@ from Spectrum_check import check_the_spectra
 
 
 # TODO:
-# - show correct caption (number of marked wells) on 'save graphs...' button
 # - pressing "load substances names" button shows file selecting popup containing list of names which should be set in corresponding wells
 #   (when showing graph, use such name instead of well position)
 
@@ -181,7 +180,21 @@ class Screener:
         panel.pack()
 
         tab_control = ttk.Notebook(panel, name='plate_tab_control')
+        tab_control.bind('<<NotebookTabChanged>>', self.on_plate_tab_changed)
         tab_control.pack(expand=1, fill='both')
+
+    def on_plate_tab_changed(self, event):
+        if len(self.plates) == 0:
+            return
+
+        active_plate = self.get_active_plate()
+
+        # update 'save graphs...' button state
+        save_graphs_button = self.get_save_graphs_button()
+        if len(active_plate.save_graph_well_positions) == 0:
+            save_graphs_button.configure(text='save graphs...', state='disabled')
+        else:
+            save_graphs_button.configure(text=f'save graphs ({len(active_plate.save_graph_well_positions)})...', state='normal')
 
     def get_plate_tab_control(self) -> ttk.Notebook:
         return self.window.children['plate_panel'].children['plate_tab_control']
