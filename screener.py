@@ -2,18 +2,18 @@ import io
 import tkinter
 import numpy
 import matplotlib.pyplot as pyplot
-from scipy import sparse
-from scipy.signal import savgol_filter
+from os import path
 from tkinter import ttk, filedialog, font
 from pandas import concat, read_csv, DataFrame
+from scipy import sparse
+from scipy.signal import savgol_filter
+from scipy.sparse.linalg import spsolve
+from Spectrum_check import check_the_spectra
 
 
 # TODO:
-# - call logic from Friday script to get answers for wells
-# - implement saving graphs for wells (is it still needed as a separate action?)
-# - what about well types (like inhibitor, substrate, sample)?
-# - what does 'inactivate' mean for well?
-# - do we need a mechanism to easily swap first and second halfs for plates?
+# - pressing "load substances names" button shows file selecting popup containing list of names which should be set in corresponding wells
+#   (when showing graph, use such name instead of well position)
 
 
 well_row_captions = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
@@ -50,32 +50,64 @@ class Well:
         self.first_half_spectrum = first_half_spectrum
         self.second_half_spectrum = second_half_spectrum
         self.differential_spectrum = None
+        self.corrected_spectrum = None
+        self.active = True
 
     def construct_differential_spectrum(self, wavelengths: DataFrame, protein_well):
-        # spectrum = (U2_x - U1_x) - (U2_p - U1_p), right?
-        spectrum = self.second_half_spectrum - self.first_half_spectrum - (protein_well.second_half_spectrum - protein_well.first_half_spectrum)
+        # spectrum = (U2_x - U1_x) + (U1_p - U2_p)
+        spectrum = self.second_half_spectrum - self.first_half_spectrum + (protein_well.first_half_spectrum - protein_well.second_half_spectrum)
         self.differential_spectrum = concat([wavelengths, spectrum], axis=1, keys=['Wavelength', 'Difference'])
 
-    def show_differential_spectrum_graph(self):
+    def construct_corrected_spectrum(self):
+
+        # baseline correction
+        # y - 1D array of y_coords, lam - lambda for smoothness (10^2 <= λ <= 10^9), p for asymmetry (0.001 <= p <= 0.1)
+        def baseline_correction(y, lam: int = 10000, p: float = 0.01, niter: int = 15):
+            L = len(y)
+            D = sparse.csc_matrix(numpy.diff(numpy.eye(L), 2))
+            w = numpy.ones(L)
+            for i in range(niter):
+                W = sparse.spdiags(w, 0, L, L)
+                Z = W + lam * D.dot(D.transpose())
+                z = spsolve(Z, w * y)
+                w = p * (y > z) + (1 - p) * (y < z)
+
+            return z
+
+        baseline = baseline_correction(self.differential_spectrum['Difference'])
+        corrected_spectrum = []
+        for i in range(0, len(self.differential_spectrum['Difference'])):
+            corrected_spectrum.append(self.differential_spectrum['Difference'][i] - baseline[i])
+        self.corrected_spectrum = [x for x in savgol_filter(corrected_spectrum, 15, 3)]
+
+    def construct_spectrum_graphs(self, folder_to_save_to: str = None):
         if self.differential_spectrum is None:
             print('WARNING: attempt to show differential spectrum graph for well that does not have differential spectrum')
+            return
+        if self.corrected_spectrum is None:
+            print('WARNING: attempt to show corrected spectrum graph for well that does not have corrected spectrum')
             return
         
         x = self.differential_spectrum['Wavelength']
         y_raw = self.differential_spectrum['Difference']
-        y_smoothed = savgol_filter(y_raw, 15, 3)
-        y_baseline = calculate_baseline(y_smoothed)
+        y_smoothed = self.corrected_spectrum[30:120]
         fig = pyplot.figure()
         pyplot.plot(x, y_raw, color='blue')
-        pyplot.plot(x, y_smoothed, color='red')
-        pyplot.plot(x, y_smoothed - y_baseline, color='green')
+        pyplot.plot(x[30:120], y_smoothed, color='red')
         pyplot.xlabel('Wavelength, nm')
         pyplot.ylabel('Optical Density, A')
-        pyplot.legend(['raw', 'smoothed', 'smoothed - baseline'])
-        title = f'{self.position} [{self.plate_name}]'  # TODO: pass here well name when implemented
+        pyplot.legend(['raw', 'smoothed'])
+        title = self.get_graph_title()
         fig.canvas.set_window_title(title)
         pyplot.title(title)
-        pyplot.show()
+        if folder_to_save_to is None:
+            pyplot.show()
+        else:
+            filename = path.join(folder_to_save_to, title.replace('/', '--'))
+            pyplot.savefig(filename)  # TODO: don't forget about DPI
+
+    def get_graph_title(self) -> str:
+        return f'{self.position} [{self.plate_name}]'  # TODO: pass here well name when implemented
 
 
 class PlateRawData:
@@ -102,6 +134,8 @@ class Plate:
     def __init__(self, raw_data: PlateRawData):
         self.raw_data = raw_data
         self.protein_well_position = None
+        self.substrate_well_position = None
+        self.save_graph_well_positions = list()
         self.wells = Plate.construct_wells(raw_data)
 
     @staticmethod
@@ -125,8 +159,14 @@ class Plate:
                 return well
         
         # if we are here then well was not found
-        print(f'WARNING: attempt to get well {position} for plate #{self.index+1} failed - no such well')
+        print(f'WARNING: attempt to get well {position} for plate #{self.raw_data.index+1} failed - no such well')
         return None
+
+
+def get_vertical_width_for_spectrum(spectrum: list) -> float:
+    lowest_value = min(spectrum[30:120])
+    highest_value = max(spectrum[30:120])
+    return highest_value - lowest_value
 
 
 class Screener:
@@ -157,7 +197,30 @@ class Screener:
         panel.pack()
 
         tab_control = ttk.Notebook(panel, name='plate_tab_control')
+        tab_control.bind('<<NotebookTabChanged>>', self.on_plate_tab_changed)
         tab_control.pack(expand=1, fill='both')
+
+    def on_plate_tab_changed(self, event):
+        if len(self.plates) == 0:
+            return
+
+        active_plate = self.get_active_plate()
+
+        # update 'save graphs...' button state
+        save_graphs_button = self.get_save_graphs_button()
+        if len(active_plate.save_graph_well_positions) == 0:
+            save_graphs_button.configure(text='save graphs...', state='disabled')
+        else:
+            save_graphs_button.configure(text=f'save graphs ({len(active_plate.save_graph_well_positions)})...', state='normal')
+
+    def get_plate_tab_control(self) -> ttk.Notebook:
+        return self.window.children['plate_panel'].children['plate_tab_control']
+
+    def get_active_plate(self) -> Plate:
+        tab_control = self.get_plate_tab_control()
+        active_plate_index = int(str(tab_control.select()).split('_')[-1])
+
+        return self.plates[active_plate_index]
 
     def add_plate_tab(self, plate: Plate = None):
         plate_tab_control = self.get_plate_tab_control()
@@ -181,12 +244,12 @@ class Screener:
     def construct_well_button(self, tab: ttk.Frame, row_index: int, column_index: int, disabled: bool = True):
         position = construct_well_position(row_index, column_index)
         name = f'button_{position}'
-        button = tkinter.Button(tab, width=5, text=position, name=name)
-        Screener.set_well_button_style(button, False)
+        button = tkinter.Button(tab, width=5, text=position, name=name, font=font.Font(size=9))
         if disabled:
             button.config(state='disabled')
         else:
             button.bind('<ButtonRelease-1>', self.show_well_graph)
+            button.bind('<ButtonPress-2>', self.mark_well_for_save_graph)
             button.bind('<ButtonRelease-3>', self.show_well_button_popup)
         button.grid(row=row_index, column=column_index)
 
@@ -194,15 +257,42 @@ class Screener:
         button = event.widget
 
         plate = self.get_plate_for_button(button)
+        well_position = Screener.get_position_for_button(button)
         # we cannot show graph if protein well is not set yet for plate
         if plate.protein_well_position is None:
-            print(f'WARNING: cannot show differential spectrum for well from plate #{plate.raw_data.index+1} - protein well is not set')
+            print(f'WARNING: cannot show spectra for well {well_position} from plate #{plate.raw_data.index+1} - protein well is not set')
             return
 
         well = self.get_corresponding_well(button)
-        # construct differential spectrum for well
+        # construct differential and corrested spectra for well
         well.construct_differential_spectrum(plate.raw_data.wavelengths, plate.get_well(plate.protein_well_position))
-        well.show_differential_spectrum_graph()
+        well.construct_corrected_spectrum()
+        well.construct_spectrum_graphs()
+
+    def mark_well_for_save_graph(self, event):
+        button = event.widget
+
+        well_position = Screener.get_position_for_button(button)
+        plate = self.get_plate_for_button(button)
+
+        # if well is not yet presented in save graphs list, add it
+        if not well_position in plate.save_graph_well_positions:
+            plate.save_graph_well_positions.append(well_position)
+            button.configure(font=font.Font(weight=font.BOLD, size=9))
+        # if well is already presented in save graphs list, remove it from list
+        else:
+            plate.save_graph_well_positions.remove(well_position)
+            button.configure(font=font.Font(weight=font.NORMAL, size=9))
+        
+        # update 'save graphs...' button text
+        save_graphs_button = self.get_save_graphs_button()
+        if len(plate.save_graph_well_positions) != 0:
+            save_graphs_button.configure(text=f'save graphs ({len(plate.save_graph_well_positions)})...')
+            if plate.protein_well_position is not None:
+                self.get_save_graphs_button().configure(state='normal')
+        else:
+            save_graphs_button.configure(text=f'save graphs...')
+            self.get_save_graphs_button().configure(state='disabled')
 
     def show_well_button_popup(self, event):
         button = event.widget
@@ -219,12 +309,22 @@ class Screener:
                               command=lambda: self.set_selected_well_as_protein_well(button))
         else:
             popup.add_command(label='[this well is already set as protein / blank well]', state='disabled')
+        # add 'set substrate well' command only if corresponding well is not already set as substrate well
+        if well.position == plate.protein_well_position:
+            popup.add_command(label='[this well cannot be set as substrate / inhibitor well]', state='disabled')
+        elif plate.substrate_well_position != well.position:
+            popup.add_command(label='set as substrate / inhibitor well',
+                              command=lambda: self.set_selected_well_as_substrate_well(button))
+        else:
+            popup.add_command(label='[this well is already set as substrate / inhibitor well]', state='disabled')
         popup.add_separator()
         popup.add_command(label='set name...', state='disabled')
         popup.add_separator()
-        popup.add_command(label='save graph...', state='disabled')
-        popup.add_separator()
-        popup.add_command(label='inactivate', state='disabled')
+        # add 'inactivate' or 'activate' command according to current well state
+        if well.active:
+            popup.add_command(label='inactivate', command=lambda: self.inactivate_selected_well(button))
+        else:
+            popup.add_command(label='activate', command=lambda: self.activate_selected_well(button))
 
         # show pop-up
         try:
@@ -246,17 +346,44 @@ class Screener:
         # un-highlight previous protein well button for active plate (if any)
         if plate.protein_well_position is not None:
             previous_protein_well_button = self.get_button_for_well(plate.raw_data.index, plate.protein_well_position)
-            self.set_well_button_style(previous_protein_well_button, False)
+            self.set_well_button_caption(previous_protein_well_button, plate.protein_well_position)
 
         # store protein well position for active plate
         plate.protein_well_position = Screener.get_position_for_button(button)
         print(f'plate #{plate.raw_data.index+1}: set protein well position as {plate.protein_well_position}')
 
         # highlight new protein well button
-        self.set_well_button_style(button, True)
+        self.set_well_button_caption(button, 'blank')
 
         # when any well marked as protein well, enable 'run' button
         self.get_run_button().configure(state='normal')
+
+        # if some wells are already marked for save graph, enable 'save graphs...' button
+        if len(plate.save_graph_well_positions) != 0:
+            self.get_save_graphs_button().configure(state='normal')
+
+    def set_selected_well_as_substrate_well(self, button: ttk.Button):
+        plate = self.get_plate_for_button(button)
+
+        # un-highlight previous substrate well button for active plate (if any)
+        if plate.substrate_well_position is not None:
+            previous_substrate_well_button = self.get_button_for_well(plate.raw_data.index, plate.substrate_well_position)
+            self.set_well_button_caption(previous_substrate_well_button, plate.substrate_well_position)
+
+        # store substrate well position for active plate
+        plate.substrate_well_position = Screener.get_position_for_button(button)
+        print(f'plate #{plate.raw_data.index+1}: set substrate well position as {plate.substrate_well_position}')
+
+        # highlight new substrate well button
+        self.set_well_button_caption(button, 'substr')
+
+    def inactivate_selected_well(self, button: ttk.Button):
+        well = self.get_corresponding_well(button)
+        well.active = False
+
+    def activate_selected_well(self, button: ttk.Button):
+        well = self.get_corresponding_well(button)
+        well.active = True
 
     def get_plate_for_button(self, button: ttk.Button) -> Plate:
         plate_tab_name = button.winfo_parent().split('.')[-1]
@@ -265,14 +392,11 @@ class Screener:
 
     @staticmethod
     def get_position_for_button(button: ttk.Button) -> str:
-        return button.config('text')[-1]  # that's just a kind of TKinter magic, so trust me
+        return button.winfo_name().split('_')[1]
 
     @staticmethod
-    def set_well_button_style(button: ttk.Button, highlighted: bool):
-        if highlighted:
-            button.configure(font=font.Font(size=10, weight='bold', slant='roman', underline=1))
-        else:
-            button.configure(font=font.Font(size=10, weight='normal', slant='italic'))
+    def set_well_button_caption(button: ttk.Button, caption: str):
+        button.configure(text=caption)
 
     def construct_bottom_panel(self):
         panel = ttk.Frame(self.window, height=20, name='bottom_panel')
@@ -280,11 +404,19 @@ class Screener:
 
         # 'select file...' button
         select_file_button = ttk.Button(panel, width=20, text='select file...', name='select_file_button', command=self.open_data_file)
-        select_file_button.pack(side=tkinter.LEFT, padx=5, pady=5)
+        select_file_button.pack(side=tkinter.LEFT, padx=4, pady=5)
 
         # 'run' button
         run_button = ttk.Button(panel, width=20, text='run', name='run_button', state='disabled', command=self.calculate_well_answers)
-        run_button.pack(side=tkinter.RIGHT, padx=5)
+        run_button.pack(side=tkinter.LEFT, padx=4)
+
+        # 'save graphs...' button
+        save_graphs_button = ttk.Button(panel, width=20, text='save graphs...', name='save_graphs_button', state='disabled', command=self.save_graphs)
+        save_graphs_button.pack(side=tkinter.RIGHT, padx=4)
+
+        # 'load protein names...' button
+        load_protein_names_button = ttk.Button(panel, width=20, text='load protein names...', name='load_protein_names_button', state='disabled', command=self.load_protein_names)
+        load_protein_names_button.pack(side=tkinter.RIGHT, padx=4)
 
     def get_plate_tab_control(self) -> ttk.Notebook:
         return self.window.children['plate_panel'].children['plate_tab_control']
@@ -370,11 +502,20 @@ class Screener:
         # add plate tabs with data
         for plate in self.plates:
             self.add_plate_tab(plate)
-        # disable 'run' button
+        # disable 'run' and 'save graphs...' buttons
         self.get_run_button().configure(state='disabled')
+        self.get_save_graphs_button().configure(state='disabled')
+        # enable 'load protein names...' button
+        self.get_load_protein_names_button().configure(state='normal')
 
     def get_run_button(self):
         return self.window.children['bottom_panel'].children['run_button']
+    
+    def get_save_graphs_button(self):
+        return self.window.children['bottom_panel'].children['save_graphs_button']
+
+    def get_load_protein_names_button(self):
+        return self.window.children['bottom_panel'].children['load_protein_names_button']
 
     def calculate_well_answers(self):
         for plate in self.plates:
@@ -384,23 +525,78 @@ class Screener:
 
             # process wells
             protein_well = plate.get_well(plate.protein_well_position)
+            min_vertical_width = None
+            max_vertical_width = None
             for well in plate.wells:
                 # skip protein well
                 if well.position == plate.protein_well_position:
+                    well.answer = None
+                    continue
+
+                # skip inactive wells
+                if not well.active:
+                    well.answer = None
                     continue
 
                 well.construct_differential_spectrum(plate.raw_data.wavelengths, protein_well)
+                well.construct_corrected_spectrum()
 
                 # TODO: run logic from Friday to get answer for well
-                answer = False
+                well.answer = check_the_spectra(well.corrected_spectrum, well.differential_spectrum)
+                well.vertical_width = get_vertical_width_for_spectrum(well.corrected_spectrum)
 
-                # update correpsonding UI
-                self.update_well_button_appearance(plate.raw_data.index, well.position, answer)
+                if min_vertical_width is None:
+                    min_vertical_width = well.vertical_width
+                else:
+                    min_vertical_width = min(min_vertical_width, well.vertical_width)
 
-    def update_well_button_appearance(self, plate_index: int, well_position: str, answer: bool):
+                if plate.substrate_well_position is None:
+                    if max_vertical_width is None:
+                        max_vertical_width = well.vertical_width
+                    else:
+                        max_vertical_width = max(max_vertical_width, well.vertical_width)
+
+            if plate.substrate_well_position is not None:
+                substrate_well = [w for w in plate.wells if w.position == plate.substrate_well_position][0]
+                max_vertical_width = substrate_well.vertical_width
+
+            # update correpsonding UI
+            for well in plate.wells:
+                if well.position == plate.protein_well_position or not well.active:
+                    self.update_well_button_appearance(plate.raw_data.index, well.position, None, None)
+                else:
+                    relative_vertical_width = (well.vertical_width - min_vertical_width) / (max_vertical_width - min_vertical_width)
+                    self.update_well_button_appearance(plate.raw_data.index, well.position, well.answer, relative_vertical_width)
+
+    def save_graphs(self):
+        plate = self.get_active_plate()
+
+        # show folder selection pop-up
+        output_folder_name = filedialog.askdirectory(title=f'select folder for graphs from [{plate.raw_data.get_combined_name()}]')
+        
+        # save graphs
+        for well in plate.wells:
+            if well.position in plate.save_graph_well_positions:
+                well.construct_differential_spectrum(plate.raw_data.wavelengths, plate.get_well(plate.protein_well_position))
+                well.construct_corrected_spectrum()
+                well.construct_spectrum_graphs(output_folder_name)
+
+    def load_protein_names(self):
+        print('WARNING: loading protein names is not implemented yet')
+
+    def update_well_button_appearance(self, plate_index: int, well_position: str, answer: bool, relative_vertical_width: float):
         button = self.get_button_for_well(plate_index, well_position)
-        if answer:
-            button['bg'] = 'green'
+        if answer is None:
+            button['bg'] = 'grey'
+        elif answer:
+            if relative_vertical_width < 0.2:
+                button['bg'] = 'grey'
+            elif relative_vertical_width < 0.6:
+                button['bg'] = 'yellow'
+            elif relative_vertical_width < 0.8:
+                button['bg'] = '#77ff77'
+            else:
+                button['bg'] = 'green'
         else:
             button['bg'] = 'red'
 
