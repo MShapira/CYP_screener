@@ -11,7 +11,6 @@ from Spectrum_check import check_the_spectra
 
 
 # TODO:
-# - implement well inactivation: if well is inactivated, do not compute answer for it
 # - press middle mouse button to add well to graph saving list; then pressing "save graphs" button shows folder selecting popup where graphs should be saved
 # - pressing "load substances names" button shows file selecting popup containing list of names which should be set in corresponding wells
 #   (when showing graph, use such name instead of well position)
@@ -35,6 +34,7 @@ class Well:
         self.second_half_spectrum = second_half_spectrum
         self.differential_spectrum = None
         self.corrected_spectrum = None
+        self.active = True
 
     def construct_differential_spectrum(self, wavelengths: DataFrame, protein_well):
         # spectrum = (U2_x - U1_x) + (U1_p - U2_p)
@@ -242,9 +242,11 @@ class Screener:
         popup.add_separator()
         popup.add_command(label='set name...', state='disabled')
         popup.add_separator()
-        popup.add_command(label='save graph...', state='disabled')
-        popup.add_separator()
-        popup.add_command(label='inactivate', state='disabled')
+        # add 'inactivate' or 'activate' command according to current well state
+        if well.active:
+            popup.add_command(label='inactivate', command=lambda: self.inactivate_selected_well(button))
+        else:
+            popup.add_command(label='activate', command=lambda: self.activate_selected_well(button))
 
         # show pop-up
         try:
@@ -292,6 +294,14 @@ class Screener:
 
         # highlight new substrate well button
         self.set_well_button_caption(button, 'substr')
+
+    def inactivate_selected_well(self, button: ttk.Button):
+        well = self.get_corresponding_well(button)
+        well.active = False
+
+    def activate_selected_well(self, button: ttk.Button):
+        well = self.get_corresponding_well(button)
+        well.active = True
 
     def get_plate_for_button(self, button: ttk.Button) -> Plate:
         plate_tab_name = button.winfo_parent().split('.')[-1]
@@ -421,6 +431,12 @@ class Screener:
             for well in plate.wells:
                 # skip protein well
                 if well.position == plate.protein_well_position:
+                    well.answer = None
+                    continue
+
+                # skip inactive wells
+                if not well.active:
+                    well.answer = None
                     continue
 
                 well.construct_differential_spectrum(plate.raw_data.wavelengths, protein_well)
@@ -447,7 +463,7 @@ class Screener:
 
             # update correpsonding UI
             for well in plate.wells:
-                if well.position == plate.protein_well_position:
+                if well.position == plate.protein_well_position or not well.active:
                     self.update_well_button_appearance(plate.raw_data.index, well.position, None, None)
                 else:
                     relative_vertical_width = (well.vertical_width - min_vertical_width) / (max_vertical_width - min_vertical_width)
